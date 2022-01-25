@@ -38,9 +38,12 @@ def main():
     model.load_state_dict(torch.load(args.path_agent))
     # model.eval()
     transitions = defaultdict(list)
+    trajectories = []
 
     # run inifinitely many episodes
     for i_episode in range(args.nb_dem):
+
+        traj_transitions = defaultdict(list)
 
         # reset environment and episode reward
         state = env.reset()
@@ -65,13 +68,15 @@ def main():
             ep_reward += reward
 
             # append transitions to transitions list
-            transitions['state'].append(last_state)
-            transitions['new_state'].append(state)
-            transitions['reward'].append(reward)
-            transitions['action'].append(action)
+            traj_transitions['state'].append(last_state)
+            traj_transitions['new_state'].append(state)
+            traj_transitions['reward'].append(reward)
+            traj_transitions['action'].append(action)
 
+            trajectories.append(traj_transitions.copy())
 
             if done:
+                transitions = transitions | traj_transitions
                 break
 
         # log results
@@ -80,10 +85,13 @@ def main():
         print('Episode {}\tNb of transitions {}\tLast reward: {:.2f}'.format(
                 i_episode, nb_transitions, ep_reward))
 
-    # Now we save this data
+    # Now we save the whole data without specific trajectories
     with open(args.save_file + '.pickle', 'wb') as f:
         pickle.dump(transitions, f)
 
+    # And then we save the trajectories specified
+    with open(args.save_file + '_trajectories.pickle', 'wb') as f:
+        pickle.dump(trajectories, f)
 
 if __name__ == '__main__':
     main()

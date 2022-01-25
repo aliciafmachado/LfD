@@ -7,8 +7,7 @@ import argparse
 import gym
 import numpy as np
 from itertools import count
-from collections import namedtuple
-from model import Policy, select_action
+from ac import Policy, select_action
 
 import torch
 import torch.nn.functional as F
