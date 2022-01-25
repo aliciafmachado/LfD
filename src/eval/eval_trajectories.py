@@ -9,7 +9,7 @@ from collections import defaultdict
 import d4rl
 
 import torch
-from agent.ac.model import select_action, Policy
+from src.agent.ac.model import select_action, Policy
 import pickle
 
 
