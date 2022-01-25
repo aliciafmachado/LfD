@@ -9,7 +9,8 @@ from collections import defaultdict
 import d4rl
 
 import torch
-from src.agent.ac.model import select_action, Policy
+from src.agent.ac.ac import select_greedy_action
+from src.agent.agents import mapping_models
 import pickle
 
 
@@ -24,9 +25,16 @@ parser.add_argument('--noise', type=float, default=None, metavar='G',
                     help='noise to be added on state seen by agent')
 parser.add_argument('--path_agent', type=str, default='a2c.pt',
                     help='path to agent to be evaluated')
+parser.add_argument('--save', type=bool, default=False,
+                    help='save trajectories')
 parser.add_argument('--save_file', type=str, default='demos',
                     help='path to save the demonstrations')
+parser.add_argument('--model', type=str, default='ac',
+                    help='model being evaluated')
 args = parser.parse_args()
+
+
+CurrentModel = mapping_models[args.model]
 
 
 env = gym.make('CartPole-v0')
@@ -34,9 +42,9 @@ env.seed(args.seed)
 torch.manual_seed(args.seed)
 
 def main():
-    model = Policy()
+    model = CurrentModel()
     model.load_state_dict(torch.load(args.path_agent))
-    # model.eval()
+    # TODO: set model.eval() when necessary
     transitions = defaultdict(list)
     trajectories = []
 
@@ -56,7 +64,7 @@ def main():
             last_state = state.copy()
 
             # select action from policy
-            action = select_action(state, model)
+            action = select_greedy_action(state, model)
 
             # take the action
             state, reward, done, _ = env.step(action)
@@ -85,13 +93,15 @@ def main():
         print('Episode {}\tNb of transitions {}\tLast reward: {:.2f}'.format(
                 i_episode, nb_transitions, ep_reward))
 
-    # Now we save the whole data without specific trajectories
-    with open(args.save_file + '.pickle', 'wb') as f:
-        pickle.dump(transitions, f)
+    if args.save:
+        print("Saving demonstrations...")
+        # Now we save the whole data without specific trajectories
+        with open(args.save_file + '.pickle', 'wb') as f:
+            pickle.dump(transitions, f)
 
-    # And then we save the trajectories specified
-    with open(args.save_file + '_trajectories.pickle', 'wb') as f:
-        pickle.dump(trajectories, f)
+        # And then we save the trajectories specified
+        with open(args.save_file + '_trajectories.pickle', 'wb') as f:
+            pickle.dump(trajectories, f)
 
 if __name__ == '__main__':
     main()

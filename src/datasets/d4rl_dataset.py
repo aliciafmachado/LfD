@@ -17,4 +17,4 @@ class D4RLDataset(Dataset):
         return {'state': state, 'new_state': new_state, 'action': action, 'reward': reward}
     
     def __len__(self):
-        return len(self.data)
+        return len(self.data['rewards'])
