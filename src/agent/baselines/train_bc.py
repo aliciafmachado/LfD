@@ -14,8 +14,7 @@ import pickle
 from torch.utils.data import DataLoader
 from src.datasets.demonstrations_dataset import DemonstrationsDataset
 from src.datasets.d4rl_dataset import D4RLDataset
-from src.agent.baselines.bc import MLP
-from src.agent.ac.ac import select_greedy_action
+from src.agent.agents import mapping_models
 
 
 parser = argparse.ArgumentParser(description='Behavioural Cloning')
@@ -31,6 +30,7 @@ parser.add_argument('--env', type=str, default='cartpole-v0')
 parser.add_argument('--demonstrations_path', type=str, default='demos.pickle')
 parser.add_argument('--n_epochs', type=int, default=100)
 parser.add_argument('--save_path', type=str, default='model_bc.pt')
+parser.add_argument('--model', type=str, default='bc')
 args = parser.parse_args()
 
 
@@ -53,8 +53,10 @@ len_ds = len(dataset)
 torch.manual_seed(args.seed)
 
 # Create model and optimizer
-model = MLP()
-optimizer = optim.Adam(model.parameters(), lr=args.lr)
+model = mapping_models[args.model]()
+if len(list(model.parameters())) != 0:
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+
 eps = np.finfo(np.float32).eps.item()
 
 losses = []
