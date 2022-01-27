@@ -15,14 +15,14 @@ from gym_minigrid.minigrid import OBJECT_TO_IDX
 class DQN(nn.Module):
 
     # frac_eps 0.4
-    def __init__(self, h, w, n_actions, device, eps_start=1.0, eps_end=0.01, frac_eps=0.4, kernel_size=3, stride=1, padding=1):
+    def __init__(self, h, w, n_actions, device, eps_start=1.0, eps_end=0.01, frac_eps=0.4, kernel_size=2, stride=2, padding=1):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(12, 32, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 32, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.conv1 = nn.Conv2d(12, 16, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.bn3 = nn.BatchNorm2d(32)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=kernel_size, stride=stride, padding=padding)
+        self.bn3 = nn.BatchNorm2d(64)
         # We add 1 so that we consider the padding
         self.embed = nn.Embedding(len(OBJECT_TO_IDX) + 1, 3)
         self.device = device
@@ -38,8 +38,11 @@ class DQN(nn.Module):
 
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
-        linear_input_size = convw * convh * 32
-        self.head = nn.Linear(linear_input_size, n_actions)
+        linear_input_size = convw * convh * 64
+        self.head = nn.Linear(linear_input_size, 64)
+        self.head2 = nn.Linear(64, n_actions)
+        self.rewards = []
+        self.saved_actions = []
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
@@ -49,7 +52,7 @@ class DQN(nn.Module):
         x = F.elu(self.bn1(self.conv1(x)))
         x = F.elu(self.bn2(self.conv2(x)))
         x = F.elu(self.bn3(self.conv3(x)))
-        return self.head(x.view(x.size(0), -1))
+        return self.head2(F.relu(self.head(x.view(x.size(0), -1))))
 
     def select_action(self, curr_step, state, nb_transitions):
         sample = random.random()
@@ -66,4 +69,6 @@ class DQN(nn.Module):
 
     def select_greedy(self, state):
         with torch.no_grad():
-            return self.forward(state).max(1)[1].view(1, 1)
+            q_values = self.forward(state)
+            return torch.max(q_values, 1, keepdim=True)[1]
+            #return self.forward(state).max(1)[1].view(1, 1)

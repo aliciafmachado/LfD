@@ -20,7 +20,6 @@ parser.add_argument('--seed', type=int, default=543, metavar='N',
                     help='random seed (default: 543)')
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='interval between training status logs (default: 10)')
-parser.add_argument('--lr', type=float, default=0.0005, metavar='LR')
 parser.add_argument('--nb_episodes', type=int, default=100)
 parser.add_argument('--nb_transitions', type=int, default=25000)
 parser.add_argument('--env', type=str, default='MiniGrid-Empty-5x5-v0')
@@ -30,6 +29,9 @@ parser.add_argument('--target_update', type=int, default=1000)
 parser.add_argument('--gamma', type=float, default=0.99)
 parser.add_argument('--render', type=bool, default=False)
 parser.add_argument('--state_bonus', type=bool, default=False)
+parser.add_argument('--memory_size', type=int, default=10000)
+parser.add_argument('--lr', type=float, default=0.00001)
+parser.add_argument('--weight_decay', type=int, default=0.0001)
 args = parser.parse_args()
 
 
@@ -70,7 +72,6 @@ def optimize(policy_net, target_net, optimizer, memory):
     # next_state_values[non_final_mask] = next_state_values[non_final_mask].gather(1, target_net(non_final_next_states).max(1)[1])
 
     # Compute the expected Q values using the Bellman equation
-
     expected_state_action_values = (next_state_values * args.gamma) + reward_batch
 
     # Compute huber loss
@@ -80,7 +81,6 @@ def optimize(policy_net, target_net, optimizer, memory):
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-
     
     for param in policy_net.parameters():
         param.grad.data.clamp_(-1, 1)
@@ -101,12 +101,14 @@ def evaluate(model, env, nb_episodes=10):
         done = False
         total_reward = 0
         t = 0
+
         while not done:
             action = model.select_greedy(state)
             temp_state, reward, done, _ = env.step(action)
             state = torch.from_numpy(temp_state).to(model.device).unsqueeze(0)
             total_reward += reward
             t += 1
+            env.render()
         
         rewards.append(total_reward)
     return np.mean(rewards)
@@ -136,14 +138,13 @@ def train():
     target_net.eval()
 
      # Optimizer
-    optimizer = optim.RMSprop(policy_net.parameters())
+    optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00001)
 
     # Create replay memory
-    memory = ReplayMemory(50000)
+    memory = ReplayMemory(args.memory_size)
 
     rewards_per_ep = []
     ep_reward = 0.
-    all_rewards = []
     losses = []
 
     # We just take the index of objects for now
@@ -168,7 +169,6 @@ def train():
 
         # Update the reward
         ep_reward += reward_
-        all_rewards.append(reward_)
 
         # Call the optimization function to do backprop
         loss = optimize(policy_net, target_net, optimizer, memory)
@@ -192,7 +192,7 @@ def train():
             if len(losses) > 0:
                 mean_loss = np.mean(losses)
 
-            reward_eval.append(evaluate(policy_net, eval_env, nb_episodes=5))
+            reward_eval.append(evaluate(policy_net, eval_env, nb_episodes=1))
 
             print('Step {}\tEval reward: {:.2f}\tAverage reward in last 10 eps: {:.2f}\tLoss: {:.3f}'.format(
                 step+1, reward_eval[-1], np.mean(rewards_per_ep[-10:]), mean_loss))

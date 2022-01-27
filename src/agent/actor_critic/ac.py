@@ -20,12 +20,15 @@ class Policy(nn.Module):
     """
     implements both actor and critic in one model
     """
-    def __init__(self, n_actions):
+    def __init__(self, n_actions=2, state_dim=4, h=None, w=None):
         super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
+        if h is None:
+            self.affine1 = nn.Linear(4, 128)
+        # else:
+        #     self.affine1 = Conv
 
         # actor's layer
-        self.action_head = nn.Linear(128, 2)
+        self.action_head = nn.Linear(128, n_actions)
 
         # critic's layer
         self.value_head = nn.Linear(128, 1)
@@ -69,11 +72,3 @@ def select_action(state, model):
 
     # the action to take (left or right)
     return action.item()
-
-
-def select_greedy_action(state, model):
-    state = torch.from_numpy(state).float()
-    out = model(state)
-    if len(out) > 1:
-        out = out[0]
-    return out.argmax().item()

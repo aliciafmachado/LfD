@@ -7,11 +7,13 @@ import gym
 import numpy as np
 from collections import defaultdict
 import d4rl
+import gym_minigrid
 
 import torch
-from src.agent.actor_critic.ac import select_greedy_action
+from src.agent.utils import select_greedy_action
 from src.agent.agents import mapping_models
 import pickle
+from src.wrappers.wrapper import FrameStack
 
 
 parser = argparse.ArgumentParser(description='Take trajectories made by a policy.')
@@ -31,19 +33,35 @@ parser.add_argument('--save_file', type=str, default='demos',
                     help='path to save the demonstrations')
 parser.add_argument('--model', type=str, default='ac',
                     help='model being evaluated')
+parser.add_argument('--env', type=str, default='MiniGrid-Empty-5x5-v0')
 args = parser.parse_args()
 
 
 CurrentModel = mapping_models[args.model]
 
+if args.env == 'MiniGrid-Empty-5x5-v0':
+    env = FrameStack(gym.make('MiniGrid-Empty-5x5-v0'))
 
-env = gym.make('CartPole-v0')
+else:
+    env = gym.make(args.env)
+    
 env.seed(args.seed)
 torch.manual_seed(args.seed)
 
 def main():
-    model = CurrentModel()
-    model.load_state_dict(torch.load(args.path_agent))
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    if args.model == 'dqn':
+        h, w, _ = env.observation_space['image'].shape
+        n_actions = env.action_space.n
+        model = CurrentModel(h, w, n_actions, device)
+
+    else:
+        model = CurrentModel()
+    model.load_state_dict(torch.load(args.path_agent, map_location=device))
+    model.eval()
+
     # TODO: set model.eval() when necessary
     transitions = defaultdict(list)
     trajectories = []
@@ -64,7 +82,12 @@ def main():
             last_state = state.copy()
 
             # select action from policy
-            action = select_greedy_action(state, model)
+            if args.model == 'dqn':
+                action = model.select_greedy(torch.from_numpy(state).to(device).unsqueeze(0))
+            
+            else:
+                action = select_greedy_action(state, model)
+                
             print(action)
 
             # take the action
