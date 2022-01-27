@@ -6,6 +6,7 @@ import gym
 import torch.optim as optim
 import gym_minigrid
 import numpy as np
+import pickle
 
 from src.utils.replay import ReplayMemory
 from src.utils.transition import Transition
@@ -21,9 +22,9 @@ parser.add_argument('--seed', type=int, default=543, metavar='N',
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='interval between training status logs (default: 10)')
 parser.add_argument('--nb_episodes', type=int, default=100)
-parser.add_argument('--nb_transitions', type=int, default=25000)
+parser.add_argument('--nb_transitions', type=int, default=10000)
 parser.add_argument('--env', type=str, default='MiniGrid-Empty-5x5-v0')
-parser.add_argument('--save_path', type=str, default='dqn.pt')
+parser.add_argument('--save_path', type=str, default='dqn')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--target_update', type=int, default=1000)
 parser.add_argument('--gamma', type=float, default=0.99)
@@ -31,11 +32,12 @@ parser.add_argument('--render', type=bool, default=False)
 parser.add_argument('--state_bonus', type=bool, default=False)
 parser.add_argument('--memory_size', type=int, default=10000)
 parser.add_argument('--lr', type=float, default=0.00001)
-parser.add_argument('--weight_decay', type=int, default=0.0001)
+parser.add_argument('--weight_decay', type=int, default=0)
+parser.add_argument('--render_eval', type=bool, default=False)
 args = parser.parse_args()
 
 
-def optimize(policy_net, target_net, optimizer, memory):
+def optimize(policy_net, target_net, optimizer, memory, scheduler):
     if len(memory) < args.batch_size:
         return
 
@@ -44,7 +46,6 @@ def optimize(policy_net, target_net, optimizer, memory):
     # Transpose the batch
     batch = Transition(*zip(*transitions))
 
-    # TODO: recheck here
     # Compute a mask of non-final states and concatenate the batch elements
     # (a final state would've been the one after which simulation ended)
     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
@@ -84,16 +85,16 @@ def optimize(policy_net, target_net, optimizer, memory):
     
     for param in policy_net.parameters():
         param.grad.data.clamp_(-1, 1)
+
     optimizer.step()
+    scheduler.step()
 
     return loss.detach().cpu().item()
 
 
 def evaluate(model, env, nb_episodes=10):
     """
-    Evaluate a trained model on the environment
-    
-    TODO: debug
+    Evaluate a trained model on the environment.
     """
     rewards = []
     for i in range(nb_episodes):
@@ -108,7 +109,9 @@ def evaluate(model, env, nb_episodes=10):
             state = torch.from_numpy(temp_state).to(model.device).unsqueeze(0)
             total_reward += reward
             t += 1
-            env.render()
+
+            if args.render_eval:
+                env.render()
         
         rewards.append(total_reward)
     return np.mean(rewards)
@@ -137,8 +140,9 @@ def train():
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
-     # Optimizer
+    # Optimizer
     optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00001, weight_decay=args.weight_decay)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, args.nb_transitions // 3, gamma = 0.1)
 
     # Create replay memory
     memory = ReplayMemory(args.memory_size)
@@ -171,7 +175,7 @@ def train():
         ep_reward += reward_
 
         # Call the optimization function to do backprop
-        loss = optimize(policy_net, target_net, optimizer, memory)
+        loss = optimize(policy_net, target_net, optimizer, memory, scheduler)
         
         if loss is not None:
             losses.append(loss)
@@ -200,13 +204,18 @@ def train():
 
     print("Finished training")
     print("Saving model to {}".format(args.save_path))
-    torch.save(policy_net.state_dict(), args.save_path)
+    torch.save(policy_net.state_dict(), args.save_path + '.pt')
+
+    if args.render or args.render_eval:
+        plt.close()
 
     # Saving rewards on eval
     plt.plot(reward_eval)
     plt.savefig(args.save_path + '_rewards.png')
 
+    # Saving losses
+    with open(args.save_path + '_losses.pickle', 'wb') as f:
+        pickle.dump(reward_eval, f)
 
 if __name__ == '__main__':
     train()
-
