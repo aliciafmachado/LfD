@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from src.datasets.demonstrations_dataset import DemonstrationsDataset
 from src.datasets.d4rl_dataset import D4RLDataset
 from src.agent.agents import mapping_models
+from src.agent.actor_critic.ac import select_greedy_action
 
 
 parser = argparse.ArgumentParser(description='Behavioural Cloning')
@@ -26,7 +27,7 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='interval between training status logs (default: 10)')
 parser.add_argument('--lr', type=float, default=0.001, metavar='LR')
 parser.add_argument('--max_iters', type=int, default=1000000)
-parser.add_argument('--env', type=str, default='cartpole-v0')
+parser.add_argument('--env', type=str, default='CartPole-v0')
 parser.add_argument('--demonstrations_path', type=str, default='demos.pickle')
 parser.add_argument('--n_epochs', type=int, default=100)
 parser.add_argument('--save_path', type=str, default='model_bc.pt')
@@ -39,6 +40,7 @@ if args.env == 'maze2d-open-v0':
     dataset = D4RLDataset(env.get_dataset())
     criterion = torch.nn.functional.huber_loss
 else:
+    env = gym.make(args.env)
     # Open pickle file
     with open(args.demonstrations_path, 'rb') as f:
         data = pickle.load(f)
@@ -64,6 +66,7 @@ losses = []
 # TODO: check if everything is working
 def train():
     for epoch in range(args.n_epochs):
+        accuracy = []
         for _, data in enumerate(dataloader):
             state = data['state']
             action = data['action']
@@ -74,9 +77,33 @@ def train():
             loss.backward()
             optimizer.step()
             losses.append(loss.item())
+            accuracy.append(np.mean(np.argmax(chosen_action_probs.detach().numpy(), axis=1) == action.numpy()))
 
         if epoch % args.log_interval == 0:
             print('Iteration: {}\tRunning Loss: {}'.format(epoch, np.mean(losses)))
+            print('Iteration: {}\tMean accuracy: {}'.format(epoch, np.mean(accuracy)))
+            # reset environment and episode reward
+            # state = env.reset()
+            
+            # ep_reward = 0
+
+            # # for each episode, only run 9999 steps so that we don't 
+            # # infinite loop while learning
+            # for t in range(1, 10000):
+            #     # select action from policy
+            #     action = select_greedy_action(state, model)
+
+            #     # take the action
+            #     state, reward, done, _ = env.step(action)
+
+            #     if args.render:
+            #         env.render()
+
+            #     model.rewards.append(reward)
+            #     ep_reward += reward
+
+            #     if done:
+            #         break
 
         # TODO: Add testing by interacting with the environment
     

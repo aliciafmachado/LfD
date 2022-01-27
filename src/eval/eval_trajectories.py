@@ -9,7 +9,7 @@ from collections import defaultdict
 import d4rl
 
 import torch
-from src.agent.ac.ac import select_greedy_action
+from src.agent.actor_critic.ac import select_greedy_action
 from src.agent.agents import mapping_models
 import pickle
 
@@ -65,6 +65,7 @@ def main():
 
             # select action from policy
             action = select_greedy_action(state, model)
+            print(action)
 
             # take the action
             state, reward, done, _ = env.step(action)
@@ -84,7 +85,10 @@ def main():
             trajectories.append(traj_transitions.copy())
 
             if done:
-                transitions = transitions | traj_transitions
+                transitions['state'].extend(traj_transitions['state'])
+                transitions['new_state'].extend(traj_transitions['new_state'])
+                transitions['reward'].extend(traj_transitions['reward'])
+                transitions['action'].extend(traj_transitions['action'])
                 break
 
         # log results
