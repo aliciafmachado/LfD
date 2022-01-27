@@ -32,7 +32,7 @@ parser.add_argument('--render', type=bool, default=False)
 parser.add_argument('--state_bonus', type=bool, default=False)
 parser.add_argument('--memory_size', type=int, default=10000)
 parser.add_argument('--lr', type=float, default=0.00001)
-parser.add_argument('--weight_decay', type=int, default=0)
+parser.add_argument('--weight_decay', type=int, default=0.0001)
 parser.add_argument('--render_eval', type=bool, default=False)
 args = parser.parse_args()
 
