@@ -138,7 +138,7 @@ def train():
     target_net.eval()
 
      # Optimizer
-    optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00001)
+    optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00001, weight_decay=args.weight_decay)
 
     # Create replay memory
     memory = ReplayMemory(args.memory_size)
