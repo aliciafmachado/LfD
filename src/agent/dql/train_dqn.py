@@ -12,9 +12,8 @@ from src.utils.transition import Transition
 from src.agent.dql.dqn import DQN
 from gym_minigrid.wrappers import StateBonus
 from matplotlib import pyplot as plt
+from src.wrappers.wrapper import FrameStack
 
-# from collections import namedtuple, deque
-from PIL import Image
 
 parser = argparse.ArgumentParser(description='DQN training')
 parser.add_argument('--seed', type=int, default=543, metavar='N',
@@ -90,24 +89,22 @@ def optimize(policy_net, target_net, optimizer, memory):
     return loss.detach().cpu().item()
 
 
-def preprocess(state, device):
-    return torch.from_numpy(state['image'][:,:,0:1]).to(device).unsqueeze(0)
-
-
 def evaluate(model, env, nb_episodes=10):
     """
     Evaluate a trained model on the environment
+    
+    TODO: debug
     """
     rewards = []
     for i in range(nb_episodes):
-        state = preprocess(env.reset(), model.device)
+        state = torch.from_numpy(env.reset()).to(model.device).unsqueeze(0)
         done = False
         total_reward = 0
         t = 0
         while not done:
             action = model.select_greedy(state)
             temp_state, reward, done, _ = env.step(action)
-            state = preprocess(temp_state, model.device)
+            state = torch.from_numpy(temp_state).to(model.device).unsqueeze(0)
             total_reward += reward
             t += 1
         
@@ -117,8 +114,8 @@ def evaluate(model, env, nb_episodes=10):
 
 def train():
     # Create environment
-    env = gym.make(args.env)
-    eval_env = gym.make(args.env)
+    env = FrameStack(gym.make(args.env))
+    eval_env = FrameStack(gym.make(args.env))
 
     if args.state_bonus:
         print('Using state bonus.')
@@ -150,14 +147,14 @@ def train():
     losses = []
 
     # We just take the index of objects for now
-    state = preprocess(env.reset(), device)
+    state = torch.from_numpy(env.reset()).to(policy_net.device).unsqueeze(0)
     reward_eval = []
 
     for step in range(args.nb_transitions):
 
         action = policy_net.select_action(step, state, nb_transitions=args.nb_transitions)
         temp_state, reward_, done, _ = env.step(action.item())
-        next_state = preprocess(temp_state, device)
+        next_state = torch.from_numpy(temp_state).to(policy_net.device).unsqueeze(0)
 
         reward = torch.tensor([reward_], device=device)
 
@@ -183,7 +180,7 @@ def train():
             env.render()
 
         if done: 
-            state = torch.from_numpy(env.reset()['image'][:,:,0:1]).to(device).unsqueeze(0)
+            state = torch.from_numpy(env.reset()).to(device).unsqueeze(0)
             rewards_per_ep.append(ep_reward)
             ep_reward = 0
 
