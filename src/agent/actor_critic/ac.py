@@ -20,7 +20,7 @@ class Policy(nn.Module):
     """
     implements both actor and critic in one model
     """
-    def __init__(self):
+    def __init__(self, n_actions):
         super(Policy, self).__init__()
         self.affine1 = nn.Linear(4, 128)
 
