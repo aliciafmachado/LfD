@@ -9,11 +9,12 @@ import numpy as np
 import pickle
 
 from src.utils.replay import ReplayMemory
-from src.utils.transition import Transition
+from src.utils.transition import TransitionTD
 from src.agent.dql.dqn import DQN
 from gym_minigrid.wrappers import StateBonus
 from matplotlib import pyplot as plt
 from src.wrappers.wrapper import FrameStack
+from collections import defaultdict
 
 
 parser = argparse.ArgumentParser(description='DQN training')
@@ -44,7 +45,7 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler):
     transitions = memory.sample(args.batch_size)
 
     # Transpose the batch
-    batch = Transition(*zip(*transitions))
+    batch = TransitionTD(*zip(*transitions))
 
     # Compute a mask of non-final states and concatenate the batch elements
     # (a final state would've been the one after which simulation ended)
@@ -152,19 +153,29 @@ def train():
     # We just take the index of objects for now
     state = torch.from_numpy(env.reset()).to(policy_net.device).unsqueeze(0)
     reward_eval = []
+    trajectory = defaultdict(list)
 
     for step in range(args.nb_transitions):
 
         action = policy_net.select_action(step, state, nb_transitions=args.nb_transitions)
         temp_state, reward_, done, _ = env.step(action.item())
         next_state = torch.from_numpy(temp_state).to(policy_net.device).unsqueeze(0)
-
         reward = torch.tensor([reward_], device=device)
 
         if not done:
-            memory.push(state, action, next_state, reward)
-        else:
-            memory.push(state, action, None, reward)
+            trajectory['state'].append(state)
+            trajectory['action'].append(action)
+            trajectory['next_state'].append(next_state)
+            trajectory['reward'].append(reward)
+
+        if done:
+            # Add last state and pushes trajectory into memory
+            trajectory['state'].append(state)
+            trajectory['action'].append(action)
+            trajectory['next_state'].append(None)
+            trajectory['reward'].append(reward)
+            memory.push_trajectory(trajectory.copy())
+            trajectory = defaultdict(list)
             
         # Move to next state
         state = next_state
@@ -212,7 +223,7 @@ def train():
     plt.savefig(args.save_path + '_rewards.png')
 
     # Saving losses
-    with open(args.save_path + '_losses.pickle', 'wb') as f:
+    with open(args.save_path + '_rewards.pickle', 'wb') as f:
         pickle.dump(reward_eval, f)
 
 if __name__ == '__main__':

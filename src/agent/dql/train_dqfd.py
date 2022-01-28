@@ -9,12 +9,13 @@ import numpy as np
 import pickle
 
 from src.utils.replay import ReplayMemory
-from src.utils.transition import Transition
+from src.utils.transition import TransitionTD
 from src.agent.dql.dqn import DQN
 from gym_minigrid.wrappers import StateBonus
 from matplotlib import pyplot as plt
 from src.wrappers.wrapper import FrameStack
 from src.agent.utils import indicator_fn
+from collections import defaultdict
 
 
 parser = argparse.ArgumentParser(description='DQN training')
@@ -40,6 +41,7 @@ parser.add_argument('--lambda2', type=int, default=1)
 parser.add_argument('--render_eval', type=bool, default=False)
 parser.add_argument('--demonstrations_path', type=str, default='demos_dqn.pickle')
 parser.add_argument('--use_expert_loss', type=bool, default=False)
+parser.add_argument('--use_td_loss', type=bool, default=False)
 parser.add_argument('--n_td', type=int, default=4)
 args = parser.parse_args()
 
@@ -54,7 +56,7 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler, n_actions, on
         transitions = memory.sample(args.batch_size)
 
     # Transpose the batch
-    batch = Transition(*zip(*transitions))
+    batch = TransitionTD(*zip(*transitions))
 
     # Compute a mask of non-final states and concatenate the batch elements
     # (a final state would've been the one after which simulation ended)
@@ -67,6 +69,9 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler, n_actions, on
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
+    R_cum_batch = torch.cat(batch.R_cum)
+    n_next_state_batch = torch.cat(batch.n_next_state)
+    gamma_n_batch = torch.Tensor([g for g in torch.from_numpy(np.array(batch.gamma_n))])
 
     # Now, we compute the state action values
     state_action_values = policy_net(state_batch).gather(1, action_batch)
@@ -75,21 +80,33 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler, n_actions, on
     next_state_values = torch.zeros(args.batch_size, device=policy_net.device)
     
     next_state_values_actions_p = policy_net(non_final_next_states).max(1)[1]
-    next_state_values[non_final_mask] = torch.gather(target_net(non_final_next_states), 1, next_state_values_actions_p.unsqueeze(1)).squeeze().detach()
+    next_state_values[non_final_mask] = torch.gather(target_net(non_final_next_states), 
+                                                     1, next_state_values_actions_p.unsqueeze(1)).squeeze().detach()
 
     # Compute the expected Q values using the Bellman equation
     expected_state_action_values = (next_state_values * args.gamma) + reward_batch
 
     # Compute MSE loss
     criterion = nn.MSELoss()
-    
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
     # Expert loss didn't help for the minigrid environment so we remove it
     if only_dem and args.use_expert_loss:
+        # TODO : target or policy net here? FIX!
         q_loss_expert = state_action_values + indicator_fn(action_batch, n_actions)
+        # exp_next_state_values = torch.zeros(args.batch_size, device=policy_net.device)
+        # exp_next_state_values[non_final_mask] = torch.gather(target_net(non_final_next_states), 
+        #                                              1, action_batch).squeeze().detach()
         loss_expert = torch.mean(q_loss_expert.max(1)[0] - state_action_values[action_batch])
         loss += loss_expert
+
+    if args.use_td_loss:
+        # Compute TD loss
+        # TODO: review here
+        n_next_state_values_actions_p = policy_net(n_next_state_batch).max(1)[1]
+        n_values = torch.gather(target_net(n_next_state_batch), 1, n_next_state_values_actions_p.unsqueeze(1)).squeeze().detach()
+        td_loss = torch.abs(state_action_values.squeeze(1) - R_cum_batch - (args.gamma ** gamma_n_batch) * n_values)
+        loss += torch.mean(td_loss)
 
     # Optimize the model
     optimizer.zero_grad()
@@ -182,11 +199,12 @@ def train():
     # scheduler = optim.lr_scheduler.StepLR(optimizer, args.nb_transitions // 3, gamma = 0.1)
 
     # Get initial data for pretraining
+    # TODO: change here
     with open(args.demonstrations_path, 'rb') as f:
         initial_data = pickle.load(f)
 
     # Create replay memory
-    memory = ReplayMemory(args.memory_size, initial_data)
+    memory = ReplayMemory(args.memory_size, initial_data, dem_factor=0.1)
 
     rewards_per_ep = []
     ep_reward = 0.
@@ -198,6 +216,7 @@ def train():
     # We just take the index of objects for now
     state = torch.from_numpy(env.reset()).to(policy_net.device).unsqueeze(0)
     reward_eval = []
+    trajectory = defaultdict(list)
 
     for step in range(args.nb_transitions):
 
@@ -208,9 +227,19 @@ def train():
         reward = torch.tensor([reward_], device=device)
 
         if not done:
-            memory.push(state, action, next_state, reward)
-        else:
-            memory.push(state, action, None, reward)
+            trajectory['state'].append(state)
+            trajectory['action'].append(action)
+            trajectory['next_state'].append(next_state)
+            trajectory['reward'].append(reward)
+
+        if done:
+            # Add last state and pushes trajectory into memory
+            trajectory['state'].append(state)
+            trajectory['action'].append(action)
+            trajectory['next_state'].append(None)
+            trajectory['reward'].append(reward)
+            memory.push_trajectory(trajectory.copy())
+            trajectory = defaultdict(list)
             
         # Move to next state
         state = next_state.clone()
@@ -258,7 +287,7 @@ def train():
     plt.savefig(args.save_path + '_rewards.png')
 
     # Saving losses
-    with open(args.save_path + '_losses.pickle', 'wb') as f:
+    with open(args.save_path + '_rewards.pickle', 'wb') as f:
         pickle.dump(reward_eval, f)
 
 if __name__ == '__main__':
