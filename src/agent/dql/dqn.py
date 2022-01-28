@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import random
 from gym_minigrid.minigrid import OBJECT_TO_IDX
 from torch.distributions import Categorical
+import numpy as np
 
 class DQN(nn.Module):
 
@@ -72,14 +73,20 @@ class DQN(nn.Module):
             q_values = self.forward(state)
             return torch.max(q_values, 1, keepdim=True)[1]
 
-    def collect_demos(self, state, temp=1):
+    def collect_demos(self, state, random_chance=0.3):
         with torch.no_grad():
-            q_values = self.forward(state)
-            probs = F.softmax(q_values / temp, dim=1)
+            rand_nb = np.random.rand()
 
-            # create a categorical distribution over the list of probabilities of actions
-            m = Categorical(probs)
+            if rand_nb > random_chance:
+                return self.select_greedy(state)
+            else:
+                return torch.tensor([[random.randrange(self.n_actions)]], dtype=torch.long, device=self.device)
+            # q_values = self.forward(state)
+            # probs = F.softmax(q_values / temp, dim=1)
 
-            # and sample an action using the distribution
-            action = m.sample()
-            return action
+            # # create a categorical distribution over the list of probabilities of actions
+            # m = Categorical(probs)
+
+            # # and sample an action using the distribution
+            # action = m.sample()
+            # return action

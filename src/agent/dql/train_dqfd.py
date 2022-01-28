@@ -14,6 +14,7 @@ from src.agent.dql.dqn import DQN
 from gym_minigrid.wrappers import StateBonus
 from matplotlib import pyplot as plt
 from src.wrappers.wrapper import FrameStack
+from src.agent.utils import indicator_fn
 
 
 parser = argparse.ArgumentParser(description='DQN training')
@@ -22,26 +23,35 @@ parser.add_argument('--seed', type=int, default=543, metavar='N',
 parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                     help='interval between training status logs (default: 10)')
 parser.add_argument('--nb_episodes', type=int, default=100)
+parser.add_argument('--pretrain_steps', type=int, default=1000)
 parser.add_argument('--nb_transitions', type=int, default=10000)
 parser.add_argument('--env', type=str, default='MiniGrid-Empty-5x5-v0')
 parser.add_argument('--save_path', type=str, default='dqn')
-parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--target_update', type=int, default=1000)
 parser.add_argument('--gamma', type=float, default=0.99)
 parser.add_argument('--render', type=bool, default=False)
 parser.add_argument('--state_bonus', type=bool, default=False)
 parser.add_argument('--memory_size', type=int, default=10000)
 parser.add_argument('--lr', type=float, default=0.00001)
-parser.add_argument('--weight_decay', type=float, default=0.) # 1e-4
+parser.add_argument('--weight_decay', type=float, default=1e-5)
+parser.add_argument('--lambda1', type=int, default=0.99)
+parser.add_argument('--lambda2', type=int, default=1)
 parser.add_argument('--render_eval', type=bool, default=False)
+parser.add_argument('--demonstrations_path', type=str, default='demos_dqn.pickle')
+parser.add_argument('--use_expert_loss', type=bool, default=False)
+parser.add_argument('--n_td', type=int, default=4)
 args = parser.parse_args()
 
 
-def optimize(policy_net, target_net, optimizer, memory, scheduler):
+def optimize(policy_net, target_net, optimizer, memory, scheduler, n_actions, only_dem=False):
     if len(memory) < args.batch_size:
         return
 
-    transitions = memory.sample(args.batch_size)
+    if only_dem:
+        transitions = memory.sample_demonstrations(args.batch_size)
+    else:
+        transitions = memory.sample(args.batch_size)
 
     # Transpose the batch
     batch = Transition(*zip(*transitions))
@@ -66,13 +76,20 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler):
     
     next_state_values_actions_p = policy_net(non_final_next_states).max(1)[1]
     next_state_values[non_final_mask] = torch.gather(target_net(non_final_next_states), 1, next_state_values_actions_p.unsqueeze(1)).squeeze().detach()
-    
+
     # Compute the expected Q values using the Bellman equation
     expected_state_action_values = (next_state_values * args.gamma) + reward_batch
 
-    # Compute huber loss
-    criterion = nn.SmoothL1Loss()
+    # Compute MSE loss
+    criterion = nn.MSELoss()
+    
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+
+    # Expert loss didn't help for the minigrid environment so we remove it
+    if only_dem and args.use_expert_loss:
+        q_loss_expert = state_action_values + indicator_fn(action_batch, n_actions)
+        loss_expert = torch.mean(q_loss_expert.max(1)[0] - state_action_values[action_batch])
+        loss += loss_expert
 
     # Optimize the model
     optimizer.zero_grad()
@@ -82,7 +99,9 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler):
         param.grad.data.clamp_(-1, 1)
 
     optimizer.step()
-    scheduler.step()
+
+    if scheduler is not None:
+        scheduler.step()
 
     return loss.detach().cpu().item()
 
@@ -112,6 +131,25 @@ def evaluate(model, env, nb_episodes=10):
     return np.mean(rewards)
 
 
+def pretrain(policy_net, target_net, replay, optimizer, n_steps, n_actions, scheduler=None):
+    """
+    Pretrain on demonstrations without interacting with environment.
+    """
+    losses_pretrain = []
+
+    for step in range(n_steps):
+        loss = optimize(policy_net, target_net, optimizer, replay, scheduler, n_actions=n_actions, only_dem=True)
+        losses_pretrain.append(loss)
+
+        if (step + 1) % args.target_update == 0:
+            target_net.load_state_dict(policy_net.state_dict())
+
+        if (step + 1) % args.log_interval == 0:
+            print('Pretrain: [{}/{}]\tLoss: {:.3f}'.format(
+                step + 1, n_steps, loss))
+
+    return losses_pretrain 
+
 def train():
     # Create environment
     env = FrameStack(gym.make(args.env))
@@ -124,7 +162,7 @@ def train():
     env.seed(args.seed)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-
+    
     h, w, _ = env.observation_space['image'].shape
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -140,14 +178,22 @@ def train():
 
     # Optimizer
     optimizer = optim.RMSprop(policy_net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, args.nb_transitions // 3, gamma = 0.1)
+    # we don't add decay since in the original paper, there is no mention of the decay
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, args.nb_transitions // 3, gamma = 0.1)
+
+    # Get initial data for pretraining
+    with open(args.demonstrations_path, 'rb') as f:
+        initial_data = pickle.load(f)
 
     # Create replay memory
-    memory = ReplayMemory(args.memory_size)
+    memory = ReplayMemory(args.memory_size, initial_data)
 
     rewards_per_ep = []
     ep_reward = 0.
     losses = []
+
+    # Pretrain
+    losses_pretrain = pretrain(policy_net, target_net, memory, optimizer, args.pretrain_steps, n_actions)
 
     # We just take the index of objects for now
     state = torch.from_numpy(env.reset()).to(policy_net.device).unsqueeze(0)
@@ -167,13 +213,13 @@ def train():
             memory.push(state, action, None, reward)
             
         # Move to next state
-        state = next_state
+        state = next_state.clone()
 
         # Update the reward
         ep_reward += reward_
 
         # Call the optimization function to do backprop
-        loss = optimize(policy_net, target_net, optimizer, memory, scheduler)
+        loss = optimize(policy_net, target_net, optimizer, memory, scheduler=None, n_actions=n_actions)
         
         if loss is not None:
             losses.append(loss)

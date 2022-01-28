@@ -23,7 +23,7 @@ parser.add_argument('--render', action='store_true',
                     help='render the environment')
 parser.add_argument('--nb_dem', type=int, default=10, metavar='N',
                     help='number of demonstrations (default: 10)')                
-parser.add_argument('--noise', type=float, default=None, metavar='G',
+parser.add_argument('--noise', type=float, default=0.,
                     help='noise to be added on state seen by agent')
 parser.add_argument('--path_agent', type=str, default='a2c.pt',
                     help='path to agent to be evaluated')
@@ -47,6 +47,7 @@ else:
     
 env.seed(args.seed)
 torch.manual_seed(args.seed)
+np.random.seed(args.seed)
 
 def main():
 
@@ -70,24 +71,25 @@ def main():
         traj_transitions = defaultdict(list)
 
         # reset environment and episode reward
-        state = env.reset()
+        state = torch.from_numpy(env.reset()).to(device).unsqueeze(0)
         
         ep_reward = 0
 
         # for each episode, only run 9999 steps so that we don't 
         # infinite loop while learning
         for t in range(1, 10000):
-            last_state = state.copy()
+            last_state = state.clone()
 
             # select action from policy
             if args.model == 'dqn':
-                action = model.collect_demos(torch.from_numpy(state).to(device).unsqueeze(0))
+                action = model.collect_demos(state, random_chance=args.noise)
             
             else:
                 action = select_greedy_action(state, model)
 
             # take the action
-            state, reward, done, _ = env.step(action)
+            temp_state, reward, done, _ = env.step(action)
+            state = torch.from_numpy(temp_state).to(device).unsqueeze(0)
 
             if args.render:
                 env.render()
@@ -97,17 +99,17 @@ def main():
 
             # append transitions to transitions list
             traj_transitions['state'].append(last_state)
-            traj_transitions['new_state'].append(state)
-            traj_transitions['reward'].append(reward)
             traj_transitions['action'].append(action)
+            traj_transitions['new_state'].append(state)
+            traj_transitions['reward'].append(torch.Tensor([reward]).to(device))
 
             trajectories.append(traj_transitions.copy())
 
             if done:
                 transitions['state'].extend(traj_transitions['state'])
+                transitions['action'].extend(traj_transitions['action'])
                 transitions['new_state'].extend(traj_transitions['new_state'])
                 transitions['reward'].extend(traj_transitions['reward'])
-                transitions['action'].extend(traj_transitions['action'])
                 break
 
         # log results
