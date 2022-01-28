@@ -209,7 +209,8 @@ def train():
         initial_data = pickle.load(f)
 
     # Create replay memory
-    memory = ReplayMemory(args.memory_size, initial_data, dem_factor=0.1, reward_extra=args.reward_extra, n_td=args.n_td)
+    memory = ReplayMemory(args.memory_size, initial_data, decay_proportional_dem=args.decay_proportional_dem , dem_prop_min=args.dem_prop_min, 
+                            dem_prop_init=args.dem_prop_init, reward_extra=args.reward_extra, n_td=args.n_td)
 
     rewards_per_ep = []
     ep_reward = 0.
