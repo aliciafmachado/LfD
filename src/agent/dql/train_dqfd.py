@@ -1,3 +1,4 @@
+from pkg_resources import parse_requirements
 import torch 
 import torch.nn as nn
 import torchvision.transforms as T
@@ -44,6 +45,9 @@ parser.add_argument('--use_expert_loss', type=bool, default=False)
 parser.add_argument('--use_td_loss', type=bool, default=False)
 parser.add_argument('--n_td', type=int, default=4)
 parser.add_argument('--reward_extra', type=bool, default=False)
+parser.add_argument('--decay_proportional_dem', dtype=float, default=0.) # 0.07
+parser.add_argument('--dem_prop_min', dtype=float, default=0.1) # 0.05
+parser.add_argument('--dem_prop_init', dtype=float, default=0.1) # 0.15
 args = parser.parse_args()
 
 
@@ -205,7 +209,7 @@ def train():
         initial_data = pickle.load(f)
 
     # Create replay memory
-    memory = ReplayMemory(args.memory_size, initial_data, dem_factor=0.1, reward_extra=args.reward_extra)
+    memory = ReplayMemory(args.memory_size, initial_data, dem_factor=0.1, reward_extra=args.reward_extra, n_td=args.n_td)
 
     rewards_per_ep = []
     ep_reward = 0.

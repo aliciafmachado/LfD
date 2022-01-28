@@ -7,9 +7,8 @@ from src.utils.transition import Transition, TransitionTD
 from collections import deque
 
 
-
 class ReplayMemory(object):
-    def __init__(self, capacity=100000, initial_data={}, dem_factor=0., n_td=4, gamma=0.99, 
+    def __init__(self, capacity=100000, initial_data={}, dem_prop_init=0., decay_proportional_dem=0., dem_prop_min=0., n_td=4, gamma=0.99, 
                  reward_extra=False, reward_increase=0.25, decay_e_reward=0.5):
         super(ReplayMemory, self).__init__()
         self.memory = deque([], maxlen=capacity)
@@ -26,7 +25,9 @@ class ReplayMemory(object):
             self._push_trajectory(self.dem_memory, trajectory)
         
         self.use_demonstrations = len(self.dem_memory) > 0
-        self.dem_factor = dem_factor
+        self.dem_prop_init = dem_prop_init
+        self.dem_prop_min = dem_prop_min
+        self.decay_proportional_dem = decay_proportional_dem
 
     def push_trajectory(self, trajectory):
         self._push_trajectory(self.memory, trajectory)
@@ -64,10 +65,17 @@ class ReplayMemory(object):
                                 next_state=tr.next_state, n_next_state=tr.n_next_state, 
                                 R_cum=tr.R_cum + incr * (sum([self.gamma ** i for i in range(tr.gamma_n)])), 
                                 gamma_n=tr.gamma_n)
+        # Get dem factor
+        if self.decay_proportional_dem > 1e-5:
+            dem_factor = self.dem_prop_min + (self.dem_prop_init - self.dem_prop_min) * max(
+                0, 1 - (len(self.memory) / (self.decay_proportional_dem * self.capacity)))
+        else:
+            dem_factor = self.dem_prop_init
+
         # We return the samples and their indexes so that
         # we are able to retrieve the td error and next action
         if self.use_demonstrations:
-            batch_dem = int(self.dem_factor * batch_size)
+            batch_dem = int(dem_factor * batch_size)
         else:
             batch_dem = 0
 
@@ -85,11 +93,10 @@ class ReplayMemory(object):
 
         # Add extra reward to the demonstrations
         if self.reward_extra:
-            r = self.reward_increase * max(0, 1 - (len(self.memory) / (self.dem_factor * self.capacity)))
+            r = self.reward_increase * max(0, 1 - (len(self.memory) / (self.decay_e_reward * self.capacity)))
             # Fix R_accum as well
             sample_dem = [mult_reward(tr, r) for tr in sample_dem]
             
-        
         return sample_dem + sample_mem
 
     def __len__(self):
