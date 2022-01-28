@@ -7,14 +7,20 @@ from src.utils.transition import Transition, TransitionTD
 from collections import deque
 
 
+
 class ReplayMemory(object):
-    def __init__(self, capacity=100000, initial_data={}, dem_factor=0., n_td=4, gamma=0.99):
+    def __init__(self, capacity=100000, initial_data={}, dem_factor=0., n_td=4, gamma=0.99, 
+                 reward_extra=False, reward_increase=0.25, decay_e_reward=0.5):
         super(ReplayMemory, self).__init__()
         self.memory = deque([], maxlen=capacity)
         self.dem_memory = deque([], maxlen=capacity)
+        self.capacity = capacity
 
         self.n_td = n_td
         self.gamma = gamma
+        self.reward_extra = reward_extra
+        self.reward_increase = reward_increase
+        self.decay_e_reward = decay_e_reward
 
         for trajectory in initial_data:
             self._push_trajectory(self.dem_memory, trajectory)
@@ -53,6 +59,11 @@ class ReplayMemory(object):
         return random.sample(self.memory, batch_size)
 
     def sample(self, batch_size):
+        def mult_reward(tr, incr):
+            return TransitionTD(state=tr.state, action=tr.action, reward=tr.reward + incr, 
+                                next_state=tr.next_state, n_next_state=tr.n_next_state, 
+                                R_cum=tr.R_cum + incr * (sum([self.gamma ** i for i in range(tr.gamma_n)])), 
+                                gamma_n=tr.gamma_n)
         # We return the samples and their indexes so that
         # we are able to retrieve the td error and next action
         if self.use_demonstrations:
@@ -71,6 +82,13 @@ class ReplayMemory(object):
 
         sample_dem = self.sample_demonstrations(batch_dem)
         sample_mem = self.sample_memory(batch_samp)
+
+        # Add extra reward to the demonstrations
+        if self.reward_extra:
+            r = self.reward_increase * max(0, 1 - (len(self.memory) / (self.dem_factor * self.capacity)))
+            # Fix R_accum as well
+            sample_dem = [mult_reward(tr, r) for tr in sample_dem]
+            
         
         return sample_dem + sample_mem
 

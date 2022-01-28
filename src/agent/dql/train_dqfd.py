@@ -36,13 +36,14 @@ parser.add_argument('--state_bonus', type=bool, default=False)
 parser.add_argument('--memory_size', type=int, default=10000)
 parser.add_argument('--lr', type=float, default=0.00001)
 parser.add_argument('--weight_decay', type=float, default=1e-5)
-parser.add_argument('--lambda1', type=int, default=0.99)
+parser.add_argument('--lambda1', type=int, default=1)
 parser.add_argument('--lambda2', type=int, default=1)
 parser.add_argument('--render_eval', type=bool, default=False)
 parser.add_argument('--demonstrations_path', type=str, default='demos_dqn.pickle')
 parser.add_argument('--use_expert_loss', type=bool, default=False)
 parser.add_argument('--use_td_loss', type=bool, default=False)
 parser.add_argument('--n_td', type=int, default=4)
+parser.add_argument('--reward_extra', type=bool, default=False)
 args = parser.parse_args()
 
 
@@ -72,7 +73,7 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler, n_actions, on
     reward_batch = torch.cat(batch.reward)
     R_cum_batch = torch.cat(batch.R_cum)
     n_next_state_batch = torch.cat(batch.n_next_state)
-    gamma_n_batch = torch.Tensor([g for g in torch.from_numpy(np.array(batch.gamma_n))])
+    gamma_n_batch = torch.Tensor([g for g in torch.from_numpy(np.array(batch.gamma_n))]).to(target_net.device)
 
     # Now, we compute the state action values
     state_action_values = policy_net(state_batch).gather(1, action_batch)
@@ -103,7 +104,6 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler, n_actions, on
 
     if args.use_td_loss:
         # Compute TD loss
-        # TODO: review here
         n_next_state_values_actions_p = policy_net(n_next_state_batch).max(1)[1]
         n_values = torch.gather(target_net(n_next_state_batch), 1, n_next_state_values_actions_p.unsqueeze(1)).squeeze().detach()
         td_loss = torch.abs(state_action_values.squeeze(1) - R_cum_batch - (args.gamma ** gamma_n_batch) * n_values)
@@ -205,7 +205,7 @@ def train():
         initial_data = pickle.load(f)
 
     # Create replay memory
-    memory = ReplayMemory(args.memory_size, initial_data, dem_factor=0.1)
+    memory = ReplayMemory(args.memory_size, initial_data, dem_factor=0.1, reward_extra=args.reward_extra)
 
     rewards_per_ep = []
     ep_reward = 0.
