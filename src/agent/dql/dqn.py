@@ -10,12 +10,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 from gym_minigrid.minigrid import OBJECT_TO_IDX
-
+from torch.distributions import Categorical
 
 class DQN(nn.Module):
 
     # frac_eps 0.4
-    def __init__(self, h, w, n_actions, device, eps_start=1.0, eps_end=0.01, frac_eps=0.4, kernel_size=2, stride=2, padding=1):
+    def __init__(self, h, w, n_actions, device, eps_start=1.0, eps_end=0.01, frac_eps=0.4, 
+                kernel_size=2, stride=2, padding=1, embed_size=3):
         super(DQN, self).__init__()
         self.conv1 = nn.Conv2d(12, 16, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn1 = nn.BatchNorm2d(16)
@@ -24,7 +25,7 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(32, 64, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn3 = nn.BatchNorm2d(64)
         # We add 1 so that we consider the padding
-        self.embed = nn.Embedding(len(OBJECT_TO_IDX) + 1, 3)
+        self.embed = nn.Embedding(len(OBJECT_TO_IDX) + 1, embed_size)
         self.device = device
         self.eps_start = eps_start
         self.eps_end = eps_end
@@ -58,8 +59,7 @@ class DQN(nn.Module):
         sample = random.random()
         # Linear Decay
         eps_threshold = self.eps_end + (self.eps_start - self.eps_end) * max(0, 1 - curr_step / (nb_transitions * self.frac_eps))
-        # eps_threshold = self.eps_end + (self.eps_start - self.eps_end) * math.exp(-1. * curr_step / self.eps_decay)
-        # print(eps_threshold)
+        
         if sample > eps_threshold:
             with torch.no_grad():
                 return self.forward(state).max(1)[1].view(1, 1)
@@ -71,4 +71,15 @@ class DQN(nn.Module):
         with torch.no_grad():
             q_values = self.forward(state)
             return torch.max(q_values, 1, keepdim=True)[1]
-            #return self.forward(state).max(1)[1].view(1, 1)
+
+    def collect_demos(self, state, temp=1):
+        with torch.no_grad():
+            q_values = self.forward(state)
+            probs = F.softmax(q_values / temp, dim=1)
+
+            # create a categorical distribution over the list of probabilities of actions
+            m = Categorical(probs)
+
+            # and sample an action using the distribution
+            action = m.sample()
+            return action

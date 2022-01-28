@@ -60,9 +60,7 @@ def main():
     else:
         model = CurrentModel()
     model.load_state_dict(torch.load(args.path_agent, map_location=device))
-    model.eval()
 
-    # TODO: set model.eval() when necessary
     transitions = defaultdict(list)
     trajectories = []
 
@@ -83,12 +81,10 @@ def main():
 
             # select action from policy
             if args.model == 'dqn':
-                action = model.select_greedy(torch.from_numpy(state).to(device).unsqueeze(0))
+                action = model.collect_demos(torch.from_numpy(state).to(device).unsqueeze(0))
             
             else:
                 action = select_greedy_action(state, model)
-                
-            print(action)
 
             # take the action
             state, reward, done, _ = env.step(action)
