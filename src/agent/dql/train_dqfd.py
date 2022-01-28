@@ -45,9 +45,9 @@ parser.add_argument('--use_expert_loss', type=bool, default=False)
 parser.add_argument('--use_td_loss', type=bool, default=False)
 parser.add_argument('--n_td', type=int, default=4)
 parser.add_argument('--reward_extra', type=bool, default=False)
-parser.add_argument('--decay_proportional_dem', dtype=float, default=0.) # 0.07
-parser.add_argument('--dem_prop_min', dtype=float, default=0.1) # 0.05
-parser.add_argument('--dem_prop_init', dtype=float, default=0.1) # 0.15
+parser.add_argument('--decay_proportional_dem', type=float, default=0.) # 0.07
+parser.add_argument('--dem_prop_min', type=float, default=0.1) # 0.05
+parser.add_argument('--dem_prop_init', type=float, default=0.1) # 0.15
 args = parser.parse_args()
 
 
