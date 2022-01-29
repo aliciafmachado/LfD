@@ -98,11 +98,7 @@ def optimize(policy_net, target_net, optimizer, memory, scheduler, n_actions, on
 
     # Expert loss didn't help for the minigrid environment so we remove it
     if only_dem and args.use_expert_loss:
-        # TODO : target or policy net here? FIX!
         q_loss_expert = state_action_values + indicator_fn(action_batch, n_actions)
-        # exp_next_state_values = torch.zeros(args.batch_size, device=policy_net.device)
-        # exp_next_state_values[non_final_mask] = torch.gather(target_net(non_final_next_states), 
-        #                                              1, action_batch).squeeze().detach()
         loss_expert = torch.mean(q_loss_expert.max(1)[0] - state_action_values[action_batch])
         loss += loss_expert
 
