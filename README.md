@@ -1,7 +1,5 @@
 # Learning from Sub-optimal demonstrations and experience
 
-This project consists on exploring Dfqd and NAC, and trying to improve this approaches by inserting heuristics on those.
+This project consists on exploring Deep Q-Learning from Demonstrations, and experimening different heuristics to improve learning.
 
-We use the d4rl datasets.
-
-Instructions on how to install dependencies to come!
+We use the MiniGrid and create trajectories with different levels of optimality by using either pre-trained agents or heuristics as example.
